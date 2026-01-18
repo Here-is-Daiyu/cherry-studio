@@ -37,7 +37,7 @@ import { versionService } from './services/VersionService'
 import { windowService } from './services/WindowService'
 import { initWebviewHotkeys } from './services/WebviewService'
 import { runAsyncFunction } from './utils'
-import { ovmsManager } from './services/OvmsManager'
+import { isOvmsSupported } from './services/OvmsManager'
 
 const logger = loggerService.withContext('MainEntry')
 
@@ -73,6 +73,15 @@ if (isWin) {
  */
 if (isLinux && process.env.XDG_SESSION_TYPE === 'wayland') {
   app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal')
+}
+
+/**
+ * Set window class and name for X11
+ * This ensures the system tray and window manager identify the app correctly
+ */
+if (isLinux) {
+  app.commandLine.appendSwitch('class', 'cherry-studio')
+  app.commandLine.appendSwitch('name', 'cherry-studio')
 }
 
 // DocumentPolicyIncludeJSCallStacksInCrashReports: Enable features for unresponsive renderer js call stacks
@@ -158,7 +167,7 @@ if (!app.requestSingleInstanceLock()) {
 
     registerShortcuts(mainWindow)
 
-    registerIpc(mainWindow, app)
+    await registerIpc(mainWindow, app)
     localTransferService.startDiscovery({ resetList: true })
 
     replaceDevtoolsFont(mainWindow)
@@ -248,7 +257,14 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('will-quit', async () => {
     // 简单的资源清理，不阻塞退出流程
-    await ovmsManager.stopOvms()
+    if (isOvmsSupported) {
+      const { ovmsManager } = await import('./services/OvmsManager')
+      if (ovmsManager) {
+        await ovmsManager.stopOvms()
+      } else {
+        logger.warn('Unexpected behavior: undefined ovmsManager, but OVMS should be supported.')
+      }
+    }
 
     try {
       await mcpService.cleanup()
